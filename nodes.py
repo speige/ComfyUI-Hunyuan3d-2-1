@@ -358,7 +358,7 @@ class Hy3DMeshGenerator:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             },
             "optional": {
-                "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
+                "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Offloads the model to the offload device once the process is done."}),
             }
         }
 
@@ -788,7 +788,7 @@ class Hy3D21VAEDecode:
             },
             "optional": {
                 "enable_flash_vdm": ("BOOLEAN", {"default": True}),
-                "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
+                "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Offloads the model to the offload device once the process is done."}),
             }            
         }
 
@@ -1309,7 +1309,7 @@ class Hy3D21MeshGenerationBatch:
             },
             "optional": {
                 "enable_flash_vdm": ("BOOLEAN", {"default": True}),
-                "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
+                "force_offload": ("BOOLEAN", {"default": True, "tooltip": "Offloads the model to the offload device once the process is done."}),
             }
         }
 
@@ -1450,8 +1450,6 @@ class Hy3D21MeshGenerationBatch:
                     print(f'Skipping file {file}')
 
                 pbar.update(1)
-
-            del vae
 
             mm.soft_empty_cache()
             torch.cuda.empty_cache()
