@@ -62,7 +62,7 @@ class Hunyuan3DPaintConfig:
 
         self.raster_mode = "cr"
         self.bake_mode = "back_sample"
-        self.render_size = 1024
+        self.render_size = resolution
         self.texture_size = texture_size
         self.max_selected_view_num = 32
         self.resolution = resolution
@@ -109,6 +109,20 @@ class Hunyuan3DPaintPipeline:
         #self.models["super_model"] = imageSuperNet(self.config)
         self.models["multiview_model"] = multiviewDiffusionNet(self.config)
         print("Models Loaded.")
+
+    def to(self, device):
+        """Move the model to the specified device"""
+        if self.model is not None and self.model.pipeline is not None:
+            self.model.pipeline = self.model.pipeline.to(device)
+        return self
+
+    def update_config(self, new_config):
+        """Update the pipeline configuration without reloading the model"""
+        self.config = new_config
+        self.render.set_default_render_resolution(new_config.render_size)
+        self.render.set_default_texture_resolution(new_config.texture_size)
+        self.render.ortho_scale = new_config.ortho_scale
+        self.view_processor.config = new_config
 
     @torch.no_grad()
     def __call__(self, mesh, image_path=None, output_mesh_path=None, use_remesh=False, save_glb=True, num_steps=10, guidance_scale=3.0, unwrap=True, seed=0):
@@ -281,7 +295,7 @@ class Hunyuan3DPaintPipeline:
         del self.render
         del self.view_processor
         del self.model
-        
+
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
         gc.collect()    

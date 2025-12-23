@@ -163,7 +163,7 @@ class HunyuanPaintPipeline(StableDiffusionPipeline):
 
         dtype = next(self.vae.parameters()).dtype
         images = (images - 0.5) * 2.0
-        posterior = self.vae.encode(images.to(dtype)).latent_dist
+        posterior = self.vae.encode(images.to(dtype).to(self.vae.device)).latent_dist
         latents = posterior.sample() * self.vae.config.scaling_factor
 
         latents = rearrange(latents, "(b n) c h w -> b n c h w", b=B)

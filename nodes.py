@@ -285,6 +285,14 @@ class Hy3DDiTPipelineLoader:
 
 class Hy3DPaintPipelineLoader:
     @classmethod
+    def IS_CHANGED(self, **kwargs):
+        if hasattr(self, 'paint_pipeline') and hasattr(self.paint_pipeline, 'render'):
+            return 0
+        else:
+            import time
+            return time.time() #marked stale because Hy3DInPaint cleared it from VRAM
+    
+    @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
@@ -300,13 +308,42 @@ class Hy3DPaintPipelineLoader:
     CATEGORY = "Hunyuan3D21Wrapper"
 
     def loadmodel(self, view_size, camera_config, texture_size):
+        conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size)
+        self.paint_pipeline = Hunyuan3DPaintPipeline(conf)
+
+        return (self.paint_pipeline,)
+
+class Hy3DPaintPipelineReconfig:
+    @classmethod
+    def IS_CHANGED(s, **kwargs):
+        import time
+        return time.time() #always marked stale so it always re-evaluates
+    
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "pipeline": ("HY3DPAINTPIPELINE",),
+                "camera_config": ("HY3D21CAMERA",),
+                "view_size": ("INT", {"default": 512, "min": 512, "max":1024, "step":256}),
+                "texture_size": ("INT", {"default":1024,"min":512,"max":4096,"step":512}),
+            },
+        }
+
+    RETURN_TYPES = ("HY3DPAINTPIPELINE",)
+    RETURN_NAMES = ("pipeline",)
+    FUNCTION = "reconfig"
+    CATEGORY = "Hunyuan3D21Wrapper"
+
+    def reconfig(self, pipeline, view_size, camera_config, texture_size):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
 
+        # Update the pipeline configuration without reloading the model
         conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size)
-        paint_pipeline = Hunyuan3DPaintPipeline(conf)
+        pipeline.update_config(conf)
 
-        return (paint_pipeline,)
+        return (pipeline,)
 
 
 class Hy3DMeshGenerator:
@@ -480,6 +517,7 @@ class Hy3DMultiViewsGenerator:
         os.makedirs(temp_folder_path, exist_ok=True)
         temp_output_path = os.path.join(temp_folder_path, "textured_mesh.obj")
 
+        pipeline.to(device)
         albedo, mr, normal_maps, position_maps = pipeline(mesh=trimesh, image_path=image, output_mesh_path=temp_output_path, num_steps=steps, guidance_scale=guidance_scale, unwrap=unwrap_mesh, seed=seed)
 
         albedo_tensor = hy3dpaintimages_to_tensor(albedo)
@@ -507,6 +545,10 @@ class Hy3DBakeMultiViews:
     CATEGORY = "Hunyuan3D21Wrapper"
 
     def process(self, pipeline, camera_config, albedo, mr):
+        device = mm.get_torch_device()
+
+        pipeline.to(device)
+
         albedo = convert_tensor_images_to_pil(albedo)
         mr = convert_tensor_images_to_pil(mr)
         
@@ -536,6 +578,9 @@ class Hy3DInPaint:
                 "mr_mask": ("NPARRAY",),
                 "output_mesh_name": ("STRING",),
             },
+            "optional": {
+                "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
+            }
         }
 
     RETURN_TYPES = ("IMAGE","IMAGE","TRIMESH", "STRING",)
@@ -544,8 +589,8 @@ class Hy3DInPaint:
     CATEGORY = "Hunyuan3D21Wrapper"
     OUTPUT_NODE = True
 
-    def process(self, pipeline, albedo, albedo_mask, mr, mr_mask, output_mesh_name):
-        
+    def process(self, pipeline, albedo, albedo_mask, mr, mr_mask, output_mesh_name, force_offload=False):
+
         #albedo = tensor2pil(albedo)
         #albedo_mask = tensor2pil(albedo_mask)
         #mr = tensor2pil(mr)
@@ -554,6 +599,9 @@ class Hy3DInPaint:
         vertex_inpaint = True
         method = "NS"       
         
+        device = mm.get_torch_device()
+        pipeline.to(device)
+
         albedo, mr = pipeline.inpaint(albedo, albedo_mask, mr, mr_mask, vertex_inpaint, method)
         
         pipeline.set_texture_albedo(albedo)
@@ -575,11 +623,14 @@ class Hy3DInPaint:
         texture_mr_tensor = pil2tensor(texture_mr_pil)
         
         output_glb_path = f"{output_mesh_name}.glb"
-        
-        pipeline.clean_memory()
-        
-        del pipeline
-        
+
+        if force_offload:
+            offload_device=mm.unet_offload_device()
+            pipeline.to(offload_device)
+        else:
+            pipeline.clean_memory()           
+            del pipeline
+
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
         gc.collect()        
@@ -777,7 +828,7 @@ class Hy3D21VAEDecode:
         print(f"Decoded mesh with {mesh_output.vertices.shape[0]} vertices and {mesh_output.faces.shape[0]} faces")
         
         #del pipeline
-        del vae
+        #del vae
         
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
@@ -1449,6 +1500,8 @@ class Hy3D21GenerateMultiViewsBatch:
         vertex_inpaint = True
         method = "NS"
 
+        pipeline.to(device)
+
         if input_images_folder != None and input_meshes_folder != None:
             files = get_picture_files(input_images_folder)
             nb_pictures = len(files)
@@ -1606,7 +1659,8 @@ class Hy3D21GenerateMultiViewsBatch:
 
                             processed_meshes.append(output_glb_path)
 
-                            pipeline.clean_memory()
+                            pipeline.clean_memory()            
+                            del pipeline
 
                             mm.soft_empty_cache()
                             torch.cuda.empty_cache()
@@ -1647,6 +1701,9 @@ class Hy3D21UseMultiViews:
     CATEGORY = "Hunyuan3D21Wrapper"
 
     def process(self, pipeline, trimesh, albedo, mr):
+        device = mm.get_torch_device()
+
+        pipeline.to(device)
         pipeline.load_mesh(trimesh)
 
         return (pipeline, albedo, mr,)
@@ -1731,6 +1788,10 @@ class Hy3D21MultiViewsGeneratorWithMetaData:
     CATEGORY = "Hunyuan3D21Wrapper"
 
     def genmultiviews(self, pipeline, trimesh, image, steps, guidance_scale, unwrap_mesh, seed, output_name):
+        device = mm.get_torch_device()
+
+        pipeline.to(device)
+
         image = tensor2pil(image)
 
         temp_folder_path = os.path.join(comfy_path, "temp")
@@ -1785,10 +1846,13 @@ class Hy3DBakeMultiViewsWithMetaData:
     FUNCTION = "process"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def process(self, pipeline, albedo, mr, metadata):  
+    def process(self, pipeline, albedo, mr, metadata):
         vertex_inpaint = True
         method = "NS"       
-        
+
+        device = mm.get_torch_device()
+        pipeline.to(device)
+
         albedo = convert_tensor_images_to_pil(albedo)
         mr = convert_tensor_images_to_pil(mr)
         
@@ -1832,17 +1896,16 @@ class Hy3DBakeMultiViewsWithMetaData:
         texture_pil = convert_ndarray_to_pil(albedo)
         texture_mr_pil = convert_ndarray_to_pil(mr)
         texture_tensor = pil2tensor(texture_pil)
-        texture_mr_tensor = pil2tensor(texture_mr_pil)        
-        
-        pipeline.clean_memory()
-        
+        texture_mr_tensor = pil2tensor(texture_mr_pil)
+
+        pipeline.clean_memory()            
+        del pipeline
+
         metadata.mesh_file = f'{output_mesh_name}.glb'
         
         output_metadata_path = os.path.join(output_dir_path,'meta_data.json')
         with open(output_metadata_path,'w') as fw:
             json.dump(metadata.__dict__, indent="\t", fp=fw)            
-        
-        del pipeline
         
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
@@ -1879,6 +1942,8 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
 
         vertex_inpaint = True
         method = "NS"
+        
+        pipeline.to(device)
 
         with open(metadata_file, 'r') as fr:
             loaded_data = json.load(fr)
@@ -1954,7 +2019,8 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
 
                     pipeline.save_mesh(output_glb_path)
 
-                    pipeline.clean_memory()
+                    pipeline.clean_memory()            
+                    del pipeline
 
             else:
                 print(f'Mesh file does not exist: {mesh_file_path}')
@@ -1966,6 +2032,7 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
 NODE_CLASS_MAPPINGS = {
     "Hy3DDiTPipelineLoader": Hy3DDiTPipelineLoader,
     "Hy3DPaintPipelineLoader": Hy3DPaintPipelineLoader,
+    "Hy3DPaintPipelineReconfig": Hy3DPaintPipelineReconfig,
     "Hy3DMeshGenerator": Hy3DMeshGenerator,
     "Hy3DMultiViewsGenerator": Hy3DMultiViewsGenerator,
     "Hy3DBakeMultiViews": Hy3DBakeMultiViews,
@@ -1996,6 +2063,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Hy3DDiTPipelineLoader": "Hunyuan 3D 2.1 DiT Pipeline Loader",
     "Hy3DPaintPipelineLoader": "Hunyuan 3D 2.1 Paint Pipeline Loader",
+    "Hy3DPaintPipelineReconfig": "Hunyuan 3D 2.1 Paint Pipeline Reconfig",
     "Hy3DMeshGenerator": "Hunyuan 3D 2.1 Mesh Generator",
     "Hy3DMultiViewsGenerator": "Hunyuan 3D 2.1 MultiViews Generator",
     "Hy3DBakeMultiViews": "Hunyuan 3D 2.1 Bake MultiViews",
