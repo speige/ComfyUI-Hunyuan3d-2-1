@@ -14,7 +14,8 @@
 
 import torch
 import numpy as np
-
+import gc
+import comfy.model_management as mm
 
 class ViewProcessor:
     def __init__(self, config, render):
@@ -27,6 +28,10 @@ class ViewProcessor:
             normal_map = self.render.render_normal(elev, azim, use_abs_coor=use_abs_coor, return_type="pl")
             normal_maps.append(normal_map)
 
+            mm.soft_empty_cache()
+            torch.cuda.empty_cache()
+            gc.collect()
+
         return normal_maps
 
     def render_position_multiview(self, camera_elevs, camera_azims):
@@ -34,6 +39,10 @@ class ViewProcessor:
         for elev, azim in zip(camera_elevs, camera_azims):
             position_map = self.render.render_position(elev, azim, return_type="pl")
             position_maps.append(position_map)
+
+            mm.soft_empty_cache()
+            torch.cuda.empty_cache()
+            gc.collect()
 
         return position_maps
 
