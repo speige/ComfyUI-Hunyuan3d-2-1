@@ -54,6 +54,7 @@ class HunyuanPaint(pl.LightningModule):
         with_normal_map=None,
         with_position_map=None,
         pbr_settings=["albedo", "mr"],
+        dino_model_path="facebook/dinov2-giant",
         **kwargs,
     ):
         """Initializes the HunyuanPaint Lightning Module.
@@ -116,7 +117,7 @@ class HunyuanPaint(pl.LightningModule):
         self.pipeline.text_encoder = self.pipeline.text_encoder.bfloat16()
 
         if self.unet.use_dino:
-            self.dino_v2 = Dino_v2("facebook/dinov2-giant")
+            self.dino_v2 = Dino_v2(dino_model_path)
             self.dino_v2 = self.dino_v2.bfloat16()
 
         self.validation_step_outputs = []

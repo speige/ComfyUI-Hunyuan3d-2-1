@@ -256,7 +256,7 @@ class Hy3DDiTPipelineLoader:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder"}),
+                "model": (folder_paths.get_filename_list("Hunyuan3D-2.1"), {"default": "hunyuan3d-dit-v2-1/model.fp16.ckpt", "tooltip": "These models are loaded from the 'ComfyUI/models/Hunyuan3D-2.1' folder"}),
                 "attention_mode": (["sdpa", "sageattn"], {"default": "sdpa"}),
             },
         }
@@ -272,7 +272,7 @@ class Hy3DDiTPipelineLoader:
 
         #from .hy3dshape.hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
 
-        model_path = folder_paths.get_full_path("diffusion_models", model)
+        model_path = folder_paths.get_full_path("Hunyuan3D-2.1", model)
 
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
             config_path=os.path.join(script_directory, 'configs', 'dit_config_2_1.yaml'),
@@ -291,7 +291,7 @@ class Hy3DPaintPipelineLoader:
         else:
             import time
             return time.time() #marked stale because Hy3DInPaint cleared it from VRAM
-    
+
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -299,7 +299,9 @@ class Hy3DPaintPipelineLoader:
                 "camera_config": ("HY3D21CAMERA",),
                 "view_size": ("INT", {"default": 512, "min": 512, "max":1024, "step":256}),
                 "texture_size": ("INT", {"default":1024,"min":512,"max":4096,"step":512}),
-            },
+                "paintpbr_model_path": ("STRING", {"default": "Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1", "tooltip": "Path to Hunyuan3D paint model directory in ComfyUI/models"}),
+                "dino_model_path": ("STRING", {"default": "facebook/dinov2-giant", "tooltip": "Path to DINO model directory in ComfyUI/models"}),
+            }
         }
 
     RETURN_TYPES = ("HY3DPAINTPIPELINE",)
@@ -307,11 +309,177 @@ class Hy3DPaintPipelineLoader:
     FUNCTION = "loadmodel"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def loadmodel(self, view_size, camera_config, texture_size):
-        conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size)
+    def loadmodel(self, view_size, camera_config, texture_size, paintpbr_model_path, dino_model_path):
+        device = mm.get_torch_device()
+        offload_device=mm.unet_offload_device()
+
+        conf = Hunyuan3DPaintConfig(
+            view_size,
+            camera_config["selected_camera_azims"],
+            camera_config["selected_camera_elevs"],
+            camera_config["selected_view_weights"],
+            camera_config["ortho_scale"],
+            texture_size,
+            paintpbr_path=os.path.join(folder_paths.models_dir, paintpbr_model_path),
+            dino_model_path=os.path.join(folder_paths.models_dir, dino_model_path)
+        )
         self.paint_pipeline = Hunyuan3DPaintPipeline(conf)
 
         return (self.paint_pipeline,)
+
+class Hy3DModelDownloader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "hunyuan_repo": ("STRING", {"default": "tencent/Hunyuan3D-2.1", "multiline": False, "tooltip": "HuggingFace repository ID for Hunyuan3D-2.1"}),
+                "dino_repo": ("STRING", {"default": "facebook/dinov2-giant", "multiline": False, "tooltip": "HuggingFace repository ID for facebook dinov2"})
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("paint_model_path", "dino_path", "dit_model_path", "vae_model_path")
+    FUNCTION = "download"
+    CATEGORY = "Hunyuan3D21Wrapper"
+    OUTPUT_NODE = True
+
+    def download(self, hunyuan_repo, dino_repo):
+        import huggingface_hub
+
+        # Create destination directories if they don't exist
+        hunyuan3d_models_dir = folder_paths.get_folder_paths("Hunyuan3D-2.1")[0] if folder_paths.get_folder_paths("Hunyuan3D-2.1") else os.path.join(comfy_path, "models", "Hunyuan3D-2.1")
+        dino_models_dir = os.path.join(folder_paths.get_folder_paths("facebook")[0] if folder_paths.get_folder_paths("facebook") else os.path.join(comfy_path, "models", "facebook"), "dinov2-giant")
+        paint_models_dir = os.path.join(hunyuan3d_models_dir, "hunyuan3d-paintpbr-v2-1")
+        dit_models_dir = os.path.join(hunyuan3d_models_dir, "hunyuan3d-dit-v2-1")
+        vae_models_dir = os.path.join(hunyuan3d_models_dir, "hunyuan3d-vae-v2-1")
+
+        os.makedirs(hunyuan3d_models_dir, exist_ok=True)
+        os.makedirs(dino_models_dir, exist_ok=True)
+        os.makedirs(dit_models_dir, exist_ok=True)
+        os.makedirs(vae_models_dir, exist_ok=True)
+
+        # Initialize return values
+        paint_model_path = ""
+        dino_path = ""
+        dit_model_path = ""
+        vae_model_path = ""
+
+        # Download paint model
+        print(f"Downloading paint model from {hunyuan_repo}...")
+
+        # Check if model directory already exists
+        if os.path.exists(paint_models_dir) and os.path.isdir(paint_models_dir):
+            print(f"Paint model directory already exists at {paint_models_dir}, skipping download.")
+        else:
+            # Download the model files using snapshot_download
+            downloaded_path = huggingface_hub.snapshot_download(
+                repo_id=hunyuan_repo,
+                allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
+                local_dir=hunyuan3d_models_dir
+            )
+            # snapshot_download returns the path to the repo directory,
+            # but we need the specific subfolder "hunyuan3d-paintpbr-v2-1"
+            paint_models_dir = os.path.join(downloaded_path, "hunyuan3d-paintpbr-v2-1")
+            if not os.path.exists(paint_models_dir):
+                # If the expected subfolder structure doesn't exist,
+                # the model files might be directly in the downloaded path
+                # Check if key model files exist in the downloaded path
+                required_files = ["unet", "scheduler", "tokenizer", "text_encoder", "vae"]
+                has_model_files = any(os.path.isdir(os.path.join(downloaded_path, f)) for f in required_files)
+                if has_model_files:
+                    paint_models_dir = downloaded_path
+                else:
+                    # If no expected structure found, raise an error
+                    raise FileNotFoundError(f"Expected model subfolder 'hunyuan3d-paintpbr-v2-1' not found in {downloaded_path}")
+            print(f"Paint model downloaded to {paint_models_dir}")
+
+        # Return just the directory name relative to the Hunyuan3D-2.1 folder
+        paint_model_path = os.path.relpath(paint_models_dir, folder_paths.models_dir)
+
+        # Download DINO model
+        dino_filename = "model.safetensors"
+        dino_path_full = os.path.join(dino_models_dir, dino_filename)
+
+        if os.path.exists(dino_path_full):
+            print(f"DINO model already exists at {dino_path_full}, skipping download.")
+        else:
+            required_files = [
+                "config.json",
+                "preprocessor_config.json",
+                "model.safetensors"
+            ]
+
+            for filename in required_files:
+                try:
+                    file_path = huggingface_hub.hf_hub_download(
+                        repo_id=dino_repo,
+                        filename=filename,
+                        local_dir=dino_models_dir
+                    )
+                    print(f"DINO {filename} downloaded to {file_path}")
+                except:
+                    # Some files might not exist, continue with others
+                    continue
+
+        dino_path = os.path.relpath(dino_models_dir, folder_paths.models_dir)
+
+        # Download DiT model
+        print(f"Downloading DiT model from {hunyuan_repo}...")
+
+        # Download the DiT model file
+        dit_model_filename = "model.fp16.ckpt"
+        dit_model_path_full = os.path.join(dit_models_dir, dit_model_filename)
+
+        # Check if the DiT model file already exists
+        if os.path.exists(dit_model_path_full):
+            print(f"DiT model already exists at {dit_model_path_full}, skipping download.")
+        else:
+            try:
+                # Directly download the specific VAE file
+                downloaded_file_path = huggingface_hub.hf_hub_download(
+                    repo_id=hunyuan_repo,
+                    filename="hunyuan3d-dit-v2-1/model.fp16.ckpt",
+                    local_dir=hunyuan3d_models_dir,
+                    local_dir_use_symlinks=False
+                )
+                
+                # Calculate the relative path for your system
+                print(f"DiT model downloaded to: {downloaded_file_path}")
+
+            except Exception as e:
+                print(f"Error downloading DiT model: {e}")
+
+        dit_model_path = os.path.relpath(dit_model_path_full, folder_paths.models_dir)
+        # Download VAE model
+        print(f"Downloading VAE model from {hunyuan_repo}...")
+
+        # Download the VAE model file
+        vae_model_filename = "model.fp16.ckpt"
+        vae_model_path_full = os.path.join(vae_models_dir, vae_model_filename)
+
+        # Check if the VAE model file already exists
+        if os.path.exists(vae_model_path_full):
+            print(f"VAE model already exists at {vae_model_path_full}, skipping download.")
+        else:
+            try:
+                # Directly download the specific VAE file
+                downloaded_file_path = huggingface_hub.hf_hub_download(
+                    repo_id=hunyuan_repo,
+                    filename="hunyuan3d-vae-v2-1/model.fp16.ckpt",
+                    local_dir=hunyuan3d_models_dir,
+                    local_dir_use_symlinks=False
+                )
+                
+                # Calculate the relative path for your system
+                print(f"VAE model downloaded to: {downloaded_file_path}")
+
+            except Exception as e:
+                print(f"Error downloading VAE model: {e}")
+
+        vae_model_path = os.path.relpath(vae_model_path_full, folder_paths.models_dir)            
+
+        return (paint_model_path, dino_path, dit_model_path, vae_model_path)
+
 
 class Hy3DPaintPipelineReconfig:
     @classmethod
@@ -340,7 +508,10 @@ class Hy3DPaintPipelineReconfig:
         offload_device=mm.unet_offload_device()
 
         # Update the pipeline configuration without reloading the model
-        conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size)
+        # Preserve the model path from the existing pipeline configuration
+        model_path = getattr(pipeline.config, 'paintpbr_path', "Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1")
+        dino_path = getattr(pipeline.config, 'dino_model_path', "facebook/dinov2-giant")
+        conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size, model_path, dino_path)
         pipeline.update_config(conf)
 
         return (pipeline,)
@@ -673,7 +844,7 @@ class Hy3D21VAELoader:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model_name": (folder_paths.get_filename_list("vae"), {"tooltip": "These models are loaded from 'ComfyUI/models/vae'"}),
+                "model_name": (folder_paths.get_filename_list("Hunyuan3D-2.1"), {"default": "hunyuan3d-vae-v2-1/model.fp16.ckpt", "tooltip": "These models are loaded from the 'ComfyUI/models/Hunyuan3D-2.1' folder"}),
             },
             "optional":{
                 "vae_config": ("HY3D21VAECONFIG",),
@@ -689,7 +860,7 @@ class Hy3D21VAELoader:
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
 
-        model_path = folder_paths.get_full_path("vae", model_name)
+        model_path = folder_paths.get_full_path("Hunyuan3D-2.1", model_name)
 
         vae_sd = load_torch_file(model_path)
         
@@ -2029,6 +2200,7 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
 
 NODE_CLASS_MAPPINGS = {
     "Hy3DDiTPipelineLoader": Hy3DDiTPipelineLoader,
+    "Hy3DModelDownloader": Hy3DModelDownloader,
     "Hy3DPaintPipelineLoader": Hy3DPaintPipelineLoader,
     "Hy3DPaintPipelineReconfig": Hy3DPaintPipelineReconfig,
     "Hy3DMeshGenerator": Hy3DMeshGenerator,
@@ -2060,6 +2232,7 @@ NODE_CLASS_MAPPINGS = {
     
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Hy3DDiTPipelineLoader": "Hunyuan 3D 2.1 DiT Pipeline Loader",
+    "Hy3DModelDownloader": "Hunyuan 3D 2.1 Model Downloader",
     "Hy3DPaintPipelineLoader": "Hunyuan 3D 2.1 Paint Pipeline Loader",
     "Hy3DPaintPipelineReconfig": "Hunyuan 3D 2.1 Paint Pipeline Reconfig",
     "Hy3DMeshGenerator": "Hunyuan 3D 2.1 Mesh Generator",

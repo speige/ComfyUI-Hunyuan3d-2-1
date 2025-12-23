@@ -29,7 +29,14 @@ if __name__ == "__main__":
     max_num_view = 6  # can be 6 to 9
     resolution = 768  # can be 768 or 512
 
-    conf = Hunyuan3DPaintConfig(max_num_view, resolution)
+    # Create config with default camera angles and view weights
+    camera_azims = [0, 90, 180, 270, 0, 180]
+    camera_elevs = [0, 0, 0, 0, 90, -90]
+    view_weights = [1, 0.1, 0.5, 0.1, 0.05, 0.05]
+    ortho_scale = 1.0
+    texture_size = resolution  # Use resolution as texture size
+
+    conf = Hunyuan3DPaintConfig(resolution, camera_azims, camera_elevs, view_weights, ortho_scale, texture_size, paintpbr_path="Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1", dino_model_path="facebook/dinov2-giant")
     paint_pipeline = Hunyuan3DPaintPipeline(conf)
     output_mesh_path = paint_pipeline(mesh_path="./assets/FireElementalMonster.obj", image_path="./assets/FireElementalMonster.png")
     print(f"Output mesh path: {output_mesh_path}")

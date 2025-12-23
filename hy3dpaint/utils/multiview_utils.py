@@ -35,13 +35,13 @@ class multiviewDiffusionNet:
         self.cfg = cfg
         self.mode = self.cfg.model.params.stable_diffusion_config.custom_pipeline[2:]
 
-        model_path = huggingface_hub.snapshot_download(
-            repo_id=config.multiview_pretrained_path,
-            allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
-        )
+        # Use the local path provided in config
+        model_path = config.paintpbr_path
 
-        model_path = os.path.join(model_path, "hunyuan3d-paintpbr-v2-1")
-                
+        # Validate that the path exists
+        if not os.path.isdir(model_path):
+            raise FileNotFoundError(f"Model path does not exist: {model_path}")
+
         pipeline = HunyuanPaintPipeline.from_pretrained(
             model_path,
             torch_dtype=torch.float16
@@ -58,7 +58,7 @@ class multiviewDiffusionNet:
 
         if hasattr(self.pipeline.unet, "use_dino") and self.pipeline.unet.use_dino:
             from ..hunyuanpaintpbr.unet.modules import Dino_v2
-            self.dino_v2 = Dino_v2(config.dino_ckpt_path).to(torch.float16)
+            self.dino_v2 = Dino_v2(config.dino_model_path).to(torch.float16)
             self.dino_v2 = self.dino_v2.to(self.device)
 
     def seed_everything(self, seed):

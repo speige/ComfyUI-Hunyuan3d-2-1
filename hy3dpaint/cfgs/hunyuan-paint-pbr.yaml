@@ -5,7 +5,8 @@ model:
     num_view: 6
     view_size: 512
     drop_cond_prob: 0.1
-    
+    dino_model_path: "facebook/dinov2-giant"
+
     noise_in_channels: 12
 
     stable_diffusion_config:

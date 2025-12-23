@@ -47,7 +47,7 @@ def quick_convert_with_obj2gltf(obj_path: str, glb_path: str) -> bool:
     create_glb_with_pbr_materials(obj_path, textures, glb_path)
 
 class Hunyuan3DPaintConfig:
-    def __init__(self, resolution, camera_azims, camera_elevs, view_weights, ortho_scale, texture_size):
+    def __init__(self, resolution, camera_azims, camera_elevs, view_weights, ortho_scale, texture_size, paintpbr_path="Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1", dino_model_path="facebook/dinov2-giant"):
         self.device = "cuda"
 
         cfg_path = os.path.join(
@@ -56,8 +56,8 @@ class Hunyuan3DPaintConfig:
 
         self.multiview_cfg_path = cfg_path
         self.custom_pipeline = "hunyuanpaintpbr"
-        self.multiview_pretrained_path = "tencent/Hunyuan3D-2.1"
-        self.dino_ckpt_path = "facebook/dinov2-giant"
+        self.paintpbr_path = paintpbr_path
+        self.dino_model_path = dino_model_path
         self.realesrgan_ckpt_path = "ckpt/RealESRGAN_x4plus.pth"
 
         self.raster_mode = "cr"
@@ -91,7 +91,16 @@ class Hunyuan3DPaintConfig:
 class Hunyuan3DPaintPipeline:
 
     def __init__(self, config=None) -> None:
-        self.config = config if config is not None else Hunyuan3DPaintConfig()
+        self.config = config if config is not None else Hunyuan3DPaintConfig(
+            resolution=512,
+            camera_azims=[0, 90, 180, 270, 0, 180],
+            camera_elevs=[0, 0, 0, 0, 90, -90],
+            view_weights=[1, 0.1, 0.5, 0.1, 0.05, 0.05],
+            ortho_scale=1.0,
+            texture_size=1024,
+            paintpbr_path="Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1",
+            dino_model_path="facebook/dinov2-giant"
+        )
         self.model = None
         self.stats_logs = {}
         self.render = MeshRender(
