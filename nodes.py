@@ -249,68 +249,123 @@ class MetaData:
         self.albedos_upscaled = None
         self.mrs_upscaled = None
         self.mesh_file = None
-    
-        
-class Hy3DMeshGenerator:
+
+
+class Hy3DDiTPipelineLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder"}),
-                "image": ("IMAGE", {"tooltip": "Image to generate mesh from"}),
-                "steps": ("INT", {"default": 50, "min": 1, "max": 100, "step": 1, "tooltip": "Number of diffusion steps"}),
-                "guidance_scale": ("FLOAT", {"default": 5.0, "min": 1, "max": 30, "step": 0.1, "tooltip": "Guidance scale"}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "attention_mode": (["sdpa", "sageattn"], {"default": "sdpa"}),
             },
         }
 
-    RETURN_TYPES = ("HY3DLATENT",)
-    RETURN_NAMES = ("latents",)
+    RETURN_TYPES = ("HY3DDITPIPELINE",)
+    RETURN_NAMES = ("pipeline",)
     FUNCTION = "loadmodel"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def loadmodel(self, model, image, steps, guidance_scale, seed, attention_mode):
+    def loadmodel(self, model, attention_mode):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
-        
-        seed = seed % (2**32)
 
         #from .hy3dshape.hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-        #from .hy3dshape.hy3dshape.rembg import BackgroundRemover
-        #import torchvision.transforms as T
 
         model_path = folder_paths.get_full_path("diffusion_models", model)
-        
+
         pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
             config_path=os.path.join(script_directory, 'configs', 'dit_config_2_1.yaml'),
             ckpt_path=model_path,
             offload_device=offload_device,
             attention_mode=attention_mode)
-        
+
+        return (pipeline,)
+
+
+class Hy3DPaintPipelineLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "view_size": ("INT", {"default": 512, "min": 512, "max":1024, "step":256}),
+                "camera_azims": ("STRING", {"default": "0, 90, 180, 270, 0, 180", "multiline": False}),
+                "camera_elevs": ("STRING", {"default": "0, 0, 0, 0, 90, -90", "multiline": False}),
+                "view_weights": ("STRING", {"default": "1, 0.1, 0.5, 0.1, 0.05, 0.05", "multiline": False}),
+                "ortho_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0, "step": 0.01}),
+                "texture_size": ("INT", {"default":1024,"min":512,"max":4096,"step":512}),
+            },
+        }
+
+    RETURN_TYPES = ("HY3DPAINTPIPELINE",)
+    RETURN_NAMES = ("pipeline",)
+    FUNCTION = "loadmodel"
+    CATEGORY = "Hunyuan3D21Wrapper"
+
+    def loadmodel(self, view_size, camera_azims, camera_elevs, view_weights, ortho_scale, texture_size):
+        device = mm.get_torch_device()
+        offload_device=mm.unet_offload_device()
+
+        # Parse the string inputs
+        camera_azims_list = list(map(int, camera_azims.replace(" ", "").split(',')))
+        camera_elevs_list = list(map(int, camera_elevs.replace(" ", "").split(',')))
+        view_weights_list = list(map(float, view_weights.replace(" ", "").split(',')))
+
+        conf = Hunyuan3DPaintConfig(view_size, camera_azims_list, camera_elevs_list, view_weights_list, ortho_scale, texture_size)
+        paint_pipeline = Hunyuan3DPaintPipeline(conf)
+
+        return (paint_pipeline,)
+
+
+class Hy3DMeshGenerator:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "pipeline": ("HY3DDITPIPELINE",),
+                "image": ("IMAGE", {"tooltip": "Image to generate mesh from"}),
+                "steps": ("INT", {"default": 50, "min": 1, "max": 100, "step": 1, "tooltip": "Number of diffusion steps"}),
+                "guidance_scale": ("FLOAT", {"default": 5.0, "min": 1, "max": 30, "step": 0.1, "tooltip": "Guidance scale"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            },
+        }
+
+    RETURN_TYPES = ("HY3DLATENT",)
+    RETURN_NAMES = ("latents",)
+    FUNCTION = "generate"
+    CATEGORY = "Hunyuan3D21Wrapper"
+
+    def generate(self, pipeline, image, steps, guidance_scale, seed):
+        device = mm.get_torch_device()
+        offload_device=mm.unet_offload_device()
+
+        seed = seed % (2**32)
+
+        #from .hy3dshape.hy3dshape.rembg import BackgroundRemover
+        #import torchvision.transforms as T
+
         # to_pil = T.ToPILImage()
         # image = to_pil(image[0].permute(2, 0, 1))
-        
+
         # if image.mode == 'RGB':
             # rembg = BackgroundRemover()
             # image = rembg(image)
-            
+
         image = tensor2pil(image)
-        
+
         latents = pipeline(
             image=image,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
             generator=torch.manual_seed(seed)
             )
-            
-        del pipeline
+
         #del vae
-        
+
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
-        gc.collect()            
-        
+        gc.collect()
+
         return (latents,)
         
 # class Hy3D21MultiViewsMeshGenerator:
@@ -411,7 +466,7 @@ class Hy3DMultiViewsGenerator:
             },
         }
 
-    RETURN_TYPES = ("HY3DPIPELINE", "IMAGE","IMAGE","IMAGE","IMAGE","HY3D21CAMERA","HY3D21METADATA",)
+    RETURN_TYPES = ("HY3DPAINTPIPELINE", "IMAGE","IMAGE","IMAGE","IMAGE","HY3D21CAMERA","HY3D21METADATA",)
     RETURN_NAMES = ("pipeline", "albedo","mr","positions","normals","camera_config", "metadata")
     FUNCTION = "genmultiviews"
     CATEGORY = "Hunyuan3D21Wrapper"
@@ -419,9 +474,9 @@ class Hy3DMultiViewsGenerator:
     def genmultiviews(self, trimesh, camera_config, view_size, image, steps, guidance_scale, texture_size, unwrap_mesh, seed):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
-        
+
         seed = seed % (2**32)
-        
+
         conf = Hunyuan3DPaintConfig(view_size, camera_config["selected_camera_azims"], camera_config["selected_camera_elevs"], camera_config["selected_view_weights"], camera_config["ortho_scale"], texture_size)
         paint_pipeline = Hunyuan3DPaintPipeline(conf)
         
@@ -445,19 +500,19 @@ class Hy3DBakeMultiViews:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "pipeline": ("HY3DPIPELINE", ),
+                "pipeline": ("HY3DPAINTPIPELINE", ),
                 "camera_config": ("HY3D21CAMERA", ),
                 "albedo": ("IMAGE", ),
-                "mr": ("IMAGE", )                
+                "mr": ("IMAGE", )
             },
         }
 
-    RETURN_TYPES = ("HY3DPIPELINE", "NPARRAY", "NPARRAY", "NPARRAY", "NPARRAY", "IMAGE", "IMAGE",)
+    RETURN_TYPES = ("HY3DPAINTPIPELINE", "NPARRAY", "NPARRAY", "NPARRAY", "NPARRAY", "IMAGE", "IMAGE",)
     RETURN_NAMES = ("pipeline", "albedo", "albedo_mask", "mr", "mr_mask", "albedo_texture", "mr_texture",)
     FUNCTION = "process"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def process(self, pipeline, camera_config, albedo, mr):        
+    def process(self, pipeline, camera_config, albedo, mr):
         albedo = convert_tensor_images_to_pil(albedo)
         mr = convert_tensor_images_to_pil(mr)
         
@@ -480,7 +535,7 @@ class Hy3DInPaint:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "pipeline": ("HY3DPIPELINE", ),
+                "pipeline": ("HY3DPAINTPIPELINE", ),
                 "albedo": ("NPARRAY", ),
                 "albedo_mask": ("NPARRAY", ),
                 "mr": ("NPARRAY", ),
@@ -1191,10 +1246,9 @@ class Hy3D21MeshGenerationBatch:
                 "input_folder": ("STRING",),
                 "output_folder": ("STRING",),
                 "vae_model_name": (folder_paths.get_filename_list("vae"), {"tooltip": "These models are loaded from 'ComfyUI/models/vae'"}),
-                "dit_model_name": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder"}),
+                "pipeline": ("HY3DDITPIPELINE",),
                 "steps": ("INT", {"default": 50, "min": 1, "max": 100, "step": 1, "tooltip": "Number of diffusion steps"}),
                 "guidance_scale": ("FLOAT", {"default": 5.0, "min": 1, "max": 30, "step": 0.1, "tooltip": "Guidance scale"}),
-                "attention_mode": (["sdpa", "sageattn"], {"default": "sdpa"}),
                 "box_v": ("FLOAT", {"default": 1.01, "min": -10.0, "max": 10.0, "step": 0.001}),
                 "octree_resolution": ("INT", {"default": 384, "min": 8, "max": 4096, "step": 8}),
                 "num_chunks": ("INT", {"default": 8000, "min": 1, "max": 10000000, "step": 1, "tooltip": "Number of chunks to process at once, higher values use more memory, but make the process faster"}),
@@ -1221,26 +1275,18 @@ class Hy3D21MeshGenerationBatch:
     DESCRIPTION = "Process all pictures from a folder"
     OUTPUT_NODE = True
 
-    def process(self, input_folder, output_folder, vae_model_name, dit_model_name, steps, guidance_scale, attention_mode, box_v, octree_resolution, num_chunks, mc_level, mc_algo, simplify, target_face_num, seed, generate_random_seed, file_format, remove_background, skip_generated_mesh, enable_flash_vdm, force_offload):       
+    def process(self, input_folder, output_folder, vae_model_name, pipeline, steps, guidance_scale, box_v, octree_resolution, num_chunks, mc_level, mc_algo, simplify, target_face_num, seed, generate_random_seed, file_format, remove_background, skip_generated_mesh, enable_flash_vdm, force_offload):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
-        
+
         files = get_picture_files(input_folder)
         nb_pictures = len(files)
-        
+
         processed_input_images = []
         processed_output_meshes = []
-        
-        if nb_pictures>0:            
+
+        if nb_pictures>0:
             rembg = BackgroundRemover()
-            
-            dit_model_path = folder_paths.get_full_path("diffusion_models", dit_model_name)
-            
-            pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
-                config_path=os.path.join(script_directory, 'configs', 'dit_config_2_1.yaml'),
-                ckpt_path=dit_model_path,
-                offload_device=offload_device,
-                attention_mode=attention_mode)    
 
             vae_model_path = folder_paths.get_full_path("vae", vae_model_name)
             vae_sd = load_torch_file(vae_model_path)
@@ -1269,38 +1315,38 @@ class Hy3D21MeshGenerationBatch:
             vae.load_state_dict(vae_sd)
             vae.eval().to(torch.float16)
             vae.to(device)
-            
+
             vae.enable_flashvdm_decoder(enabled=enable_flash_vdm, mc_algo=mc_algo)
-            
+
             pbar = ProgressBar(nb_pictures)
-            for file in files:           
-                output_file_name = get_filename_without_extension_os_path(file)                
+            for file in files:
+                output_file_name = get_filename_without_extension_os_path(file)
                 output_glb_path = Path(output_folder, f'{output_file_name}.{file_format}')
-                
+
                 processImage = True
-                
+
                 if skip_generated_mesh:
                    if os.path.exists(output_glb_path):
                        processImage = False
-                
+
                 if processImage == True:
                     print(f'Processing {file} ...')
                     if generate_random_seed:
                         seed = int.from_bytes(os.urandom(4), 'big')
-                        
+
                     image = Image.open(file)
-                    
+
                     if remove_background:
                         print('Removing background ...')
                         image = rembg(image)
-                    
+
                     latents = pipeline(
                         image=image,
                         num_inference_steps=steps,
                         guidance_scale=guidance_scale,
                         generator=torch.manual_seed(seed)
                         )
-                    
+
                     latents = vae.decode(latents)
                     outputs = vae.latents2mesh(
                         latents,
@@ -1312,21 +1358,21 @@ class Hy3D21MeshGenerationBatch:
                         mc_algo=mc_algo,
                         enable_pbar=True
                     )[0]
-                    
+
                     if force_offload==True:
                         vae.to(offload_device)
-                    
-                    outputs.mesh_f = outputs.mesh_f[:, ::-1]                
-                    
+
+                    outputs.mesh_f = outputs.mesh_f[:, ::-1]
+
                     mesh_output = Trimesh.Trimesh(outputs.mesh_v, outputs.mesh_f)
                     mesh_output = FloaterRemover()(mesh_output)
                     mesh_output = DegenerateFaceRemover()(mesh_output)
-                    
+
                     if simplify==True and target_face_num>0:
                         try:
                             import meshlib.mrmeshpy as mrmeshpy
                         except ImportError:
-                            raise ImportError("meshlib not found. Please install it using 'pip install meshlib'")                    
+                            raise ImportError("meshlib not found. Please install it using 'pip install meshlib'")
 
                         if target_face_num == 0 and target_face_ratio == 0.0:
                             raise ValueError('target_face_num or target_face_ratio must be set')
@@ -1336,35 +1382,34 @@ class Hy3D21MeshGenerationBatch:
 
                         settings = mrmeshpy.DecimateSettings()
                         faces_to_delete = current_faces_num - target_face_num
-                        settings.maxDeletedFaces = faces_to_delete                        
+                        settings.maxDeletedFaces = faces_to_delete
                         settings.packMesh = True
-                        
+
                         print('Decimating ...')
-                        mesh_output = postprocessmesh(mesh_output.vertices, mesh_output.faces, settings)                
-                        
+                        mesh_output = postprocessmesh(mesh_output.vertices, mesh_output.faces, settings)
+
                     output_glb_path.parent.mkdir(exist_ok=True)
-                    
+
                     processed_input_images.append(file)
                     processed_output_meshes.append(output_glb_path)
-                    
-                    mesh_output.export(output_glb_path, file_type=file_format)              
-                                    
+
+                    mesh_output.export(output_glb_path, file_type=file_format)
+
                     mm.soft_empty_cache()
                     torch.cuda.empty_cache()
-                    gc.collect()     
+                    gc.collect()
                 else:
                     print(f'Skipping file {file}')
-                    
+
                 pbar.update(1)
 
-            del pipeline
             del vae
-            
+
             mm.soft_empty_cache()
             torch.cuda.empty_cache()
-            gc.collect() 
-            
-        return (input_folder, output_folder, processed_input_images, processed_output_meshes, ) 
+            gc.collect()
+
+        return (input_folder, output_folder, processed_input_images, processed_output_meshes, )
         
 class Hy3D21GenerateMultiViewsBatch:
     @classmethod
@@ -1603,11 +1648,11 @@ class Hy3D21UseMultiViews:
                 "albedo": ("IMAGE",),
                 "mr": ("IMAGE",),
                 "view_size": ("INT",{"default":512}),
-                "texture_size": ("INT",{"default":1024}),                
+                "texture_size": ("INT",{"default":1024}),
             },
         }
 
-    RETURN_TYPES = ("HY3DPIPELINE", "IMAGE","IMAGE","HY3D21CAMERA",)
+    RETURN_TYPES = ("HY3DPAINTPIPELINE", "IMAGE","IMAGE","HY3D21CAMERA",)
     RETURN_NAMES = ("pipeline", "albedo","mr","camera_config",)
     FUNCTION = "process"
     CATEGORY = "Hunyuan3D21Wrapper"
@@ -1630,11 +1675,11 @@ class Hy3D21UseMultiViewsFromMetaData:
                 "trimesh": ("TRIMESH",),
                 "metadata_file": ("STRING",),
                 "view_size": ("INT",{"default":512}),
-                "texture_size": ("INT",{"default":1024}),                
+                "texture_size": ("INT",{"default":1024}),
             },
         }
 
-    RETURN_TYPES = ("HY3DPIPELINE", "IMAGE","IMAGE","HY3D21CAMERA",)
+    RETURN_TYPES = ("HY3DPAINTPIPELINE", "IMAGE","IMAGE","HY3D21CAMERA",)
     RETURN_NAMES = ("pipeline", "albedo","mr","camera_config",)
     FUNCTION = "process"
     CATEGORY = "Hunyuan3D21Wrapper"
@@ -1705,7 +1750,7 @@ class Hy3D21MultiViewsGeneratorWithMetaData:
             },
         }
 
-    RETURN_TYPES = ("HY3DPIPELINE", "IMAGE","IMAGE","HY3D21METADATA","IMAGE","IMAGE",)
+    RETURN_TYPES = ("HY3DPAINTPIPELINE", "IMAGE","IMAGE","HY3D21METADATA","IMAGE","IMAGE",)
     RETURN_NAMES = ("pipeline", "albedo","mr","metadata","positions","normals",)
     FUNCTION = "genmultiviews"
     CATEGORY = "Hunyuan3D21Wrapper"
@@ -1761,7 +1806,7 @@ class Hy3DBakeMultiViewsWithMetaData:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "pipeline": ("HY3DPIPELINE", ),
+                "pipeline": ("HY3DPAINTPIPELINE", ),
                 "albedo": ("IMAGE", ),
                 "mr": ("IMAGE", ),
                 "metadata": ("HY3D21METADATA",),
@@ -1958,6 +2003,8 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
         return (output_lowpoly_path,)        
 
 NODE_CLASS_MAPPINGS = {
+    "Hy3DDiTPipelineLoader": Hy3DDiTPipelineLoader,
+    "Hy3DPaintPipelineLoader": Hy3DPaintPipelineLoader,
     "Hy3DMeshGenerator": Hy3DMeshGenerator,
     "Hy3DMultiViewsGenerator": Hy3DMultiViewsGenerator,
     "Hy3DBakeMultiViews": Hy3DBakeMultiViews,
@@ -1986,6 +2033,8 @@ NODE_CLASS_MAPPINGS = {
     }
     
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "Hy3DDiTPipelineLoader": "Hunyuan 3D 2.1 DiT Pipeline Loader",
+    "Hy3DPaintPipelineLoader": "Hunyuan 3D 2.1 Paint Pipeline Loader",
     "Hy3DMeshGenerator": "Hunyuan 3D 2.1 Mesh Generator",
     "Hy3DMultiViewsGenerator": "Hunyuan 3D 2.1 MultiViews Generator",
     "Hy3DBakeMultiViews": "Hunyuan 3D 2.1 Bake MultiViews",
