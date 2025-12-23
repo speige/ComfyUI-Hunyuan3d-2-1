@@ -320,6 +320,9 @@ class Hy3DMeshGenerator:
                 "guidance_scale": ("FLOAT", {"default": 5.0, "min": 1, "max": 30, "step": 0.1, "tooltip": "Guidance scale"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             },
+            "optional": {
+                "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
+            }
         }
 
     RETURN_TYPES = ("HY3DLATENT",)
@@ -327,7 +330,7 @@ class Hy3DMeshGenerator:
     FUNCTION = "generate"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def generate(self, pipeline, image, steps, guidance_scale, seed):
+    def generate(self, pipeline, image, steps, guidance_scale, seed, force_offload):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
 
@@ -344,6 +347,8 @@ class Hy3DMeshGenerator:
             # image = rembg(image)
 
         image = tensor2pil(image)
+        
+        pipeline.to(device)
 
         latents = pipeline(
             image=image,
@@ -353,6 +358,8 @@ class Hy3DMeshGenerator:
             )
 
         #del vae
+        if force_offload:
+            pipeline.to(offload_device)
 
         mm.soft_empty_cache()
         torch.cuda.empty_cache()
@@ -1327,6 +1334,8 @@ class Hy3D21MeshGenerationBatch:
                         print('Removing background ...')
                         image = rembg(image)
 
+                    pipeline.to(device)
+
                     latents = pipeline(
                         image=image,
                         num_inference_steps=steps,
@@ -1347,6 +1356,7 @@ class Hy3D21MeshGenerationBatch:
                     )[0]
 
                     if force_offload==True:
+                        pipeline.to(offload_device)
                         vae.to(offload_device)
 
                     outputs.mesh_f = outputs.mesh_f[:, ::-1]
