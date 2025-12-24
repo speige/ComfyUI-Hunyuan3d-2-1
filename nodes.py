@@ -297,7 +297,7 @@ class Hy3DPaintPipelineLoader:
         return {
             "required": {
                 "camera_config": ("HY3D21CAMERA",),
-                "view_size": ("INT", {"default": 512, "min": 512, "max":1024, "step":256}),
+                "view_size": ("INT", {"default": 1024, "min": 512, "max":2048, "step":256}),
                 "texture_size": ("INT", {"default":1024,"min":512,"max":4096,"step":512}),
                 "paintpbr_model_path": ("STRING", {"default": "Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1", "tooltip": "Path to Hunyuan3D paint model directory in ComfyUI/models"}),
                 "dino_model_path": ("STRING", {"default": "facebook/dinov2-giant", "tooltip": "Path to DINO model directory in ComfyUI/models"}),
@@ -493,7 +493,7 @@ class Hy3DPaintPipelineReconfig:
             "required": {
                 "pipeline": ("HY3DPAINTPIPELINE",),
                 "camera_config": ("HY3D21CAMERA",),
-                "view_size": ("INT", {"default": 512, "min": 512, "max":1024, "step":256}),
+                "view_size": ("INT", {"default": 1024, "min": 512, "max":2048, "step":256}),
                 "texture_size": ("INT", {"default":1024,"min":512,"max":4096,"step":512}),
             },
         }
