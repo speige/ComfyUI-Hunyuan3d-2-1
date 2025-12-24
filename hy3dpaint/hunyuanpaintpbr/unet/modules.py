@@ -134,7 +134,6 @@ def compute_voxel_grid_mask(position, grid_resolution=8):
         torch.Tensor: Attention mask [B, N*grid_res**2, N*grid_res**2]
     """
 
-    position = position.half()
     B, N, _, H, W = position.shape
     assert H % grid_resolution == 0 and W % grid_resolution == 0
 
@@ -216,7 +215,6 @@ def compute_discrete_voxel_indice(position, grid_resolution=8, voxel_resolution=
         torch.Tensor: Voxel indices [B, N, grid_res, grid_res, 3]
     """
 
-    position = position.half()
     B, N, _, H, W = position.shape
     assert H % grid_resolution == 0 and W % grid_resolution == 0
 

@@ -104,7 +104,7 @@ class HunyuanPaint(pl.LightningModule):
         pipeline.set_learned_parameters()
 
         if control_net_config is not None:
-            pipeline.unet = pipeline.unet.bfloat16().requires_grad_(control_net_config.train_unet)
+            pipeline.unet = pipeline.unet.requires_grad_(control_net_config.train_unet)
             self.pipeline.add_controlnet(
                 ControlNetModel.from_pretrained(control_net_config.pretrained_model_name_or_path),
                 conditioning_scale=0.75,

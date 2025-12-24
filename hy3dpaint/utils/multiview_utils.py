@@ -58,7 +58,8 @@ class multiviewDiffusionNet:
 
         if hasattr(self.pipeline.unet, "use_dino") and self.pipeline.unet.use_dino:
             from ..hunyuanpaintpbr.unet.modules import Dino_v2
-            self.dino_v2 = Dino_v2(config.dino_model_path).to(torch.float16)
+            self.dino_v2 = Dino_v2(config.dino_model_path)
+            self.dino_v2 = self.dino_v2.to(torch.float16)
             self.dino_v2 = self.dino_v2.to(self.device)
 
     def seed_everything(self, seed):
