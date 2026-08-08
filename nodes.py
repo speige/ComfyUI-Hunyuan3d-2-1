@@ -313,6 +313,17 @@ class Hy3DPaintPipelineLoader:
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
 
+        def resolve_model_path(p):
+            if not p:
+                return p
+            p_joint = os.path.normpath(os.path.join(folder_paths.models_dir, p))
+            if os.path.exists(p_joint):
+                return p_joint
+            p_norm = os.path.normpath(p)
+            if os.path.exists(p_norm):
+                return p_norm
+            return p
+
         conf = Hunyuan3DPaintConfig(
             view_size,
             camera_config["selected_camera_azims"],
@@ -320,8 +331,8 @@ class Hy3DPaintPipelineLoader:
             camera_config["selected_view_weights"],
             camera_config["ortho_scale"],
             texture_size,
-            paintpbr_path=os.path.join(folder_paths.models_dir, paintpbr_model_path),
-            dino_model_path=os.path.join(folder_paths.models_dir, dino_model_path)
+            paintpbr_path=resolve_model_path(paintpbr_model_path),
+            dino_model_path=resolve_model_path(dino_model_path)
         )
         self.paint_pipeline = Hunyuan3DPaintPipeline(conf)
 

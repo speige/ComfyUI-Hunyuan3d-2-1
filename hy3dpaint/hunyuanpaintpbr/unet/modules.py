@@ -48,8 +48,8 @@ class Dino_v2(nn.Module):
 
     def __init__(self, dino_v2_path):
         super(Dino_v2, self).__init__()
-        self.dino_processor = AutoImageProcessor.from_pretrained(dino_v2_path)
-        self.dino_v2 = AutoModel.from_pretrained(dino_v2_path)
+        self.dino_processor = AutoImageProcessor.from_pretrained(dino_v2_path, trust_remote_code=True)
+        self.dino_v2 = AutoModel.from_pretrained(dino_v2_path, trust_remote_code=True)
 
         for param in self.parameters():
             param.requires_grad = False

@@ -78,6 +78,7 @@ class HunyuanPaint(pl.LightningModule):
         self.pbr_settings = pbr_settings
 
         # init modules
+        stable_diffusion_config["trust_remote_code"] = True
         pipeline = DiffusionPipeline.from_pretrained(**stable_diffusion_config)
         pipeline.set_pbr_settings(self.pbr_settings)
         pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
@@ -106,7 +107,7 @@ class HunyuanPaint(pl.LightningModule):
         if control_net_config is not None:
             pipeline.unet = pipeline.unet.requires_grad_(control_net_config.train_unet)
             self.pipeline.add_controlnet(
-                ControlNetModel.from_pretrained(control_net_config.pretrained_model_name_or_path),
+                ControlNetModel.from_pretrained(control_net_config.pretrained_model_name_or_path, trust_remote_code=True),
                 conditioning_scale=0.75,
             )
 
