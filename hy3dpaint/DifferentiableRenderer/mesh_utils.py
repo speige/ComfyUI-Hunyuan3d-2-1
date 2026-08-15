@@ -117,7 +117,7 @@ def _create_obj_content(
     return buffer.getvalue()
 
 
-def save_obj_mesh(mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=None, roughness=None, normal=None):
+def save_obj_mesh(mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=None, roughness=None, ao=None, normal=None):
     """Save mesh as OBJ file with textures and material."""
     # Convert inputs to numpy arrays
     vtx_pos = _convert_to_numpy(vtx_pos, np.float32)
@@ -142,6 +142,10 @@ def save_obj_mesh(mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic
         texture_maps["roughness"] = _save_texture_map(
             roughness, base_path, "_roughness", color_convert=cv2.COLOR_RGB2GRAY
         )
+    if ao is not None:
+        texture_maps["ao"] = _save_texture_map(
+            ao, base_path, "_ao", color_convert=cv2.COLOR_RGB2GRAY
+        )
     if normal is not None:
         texture_maps["normal"] = _save_texture_map(normal, base_path, "_normal")
 
@@ -160,16 +164,16 @@ def _create_mtl_file(base_path: str, texture_maps: Dict[str, str], is_pbr: bool)
             # PBR material properties
             properties = {
                 "Kd": [0.800, 0.800, 0.800],
-                "Ke": [0.000, 0.000, 0.000],  # 鐜鍏夐伄钄�
-                "Ni": 1.500,  # 鎶樺皠绯绘暟
-                "d": 1.0,  # 閫忔槑搴�
-                "illum": 2,  # 鍏夌収妯″瀷
+                "Ke": [0.000, 0.000, 0.000],  # 环境光遮蔽
+                "Ni": 1.500,  # 折射系数
+                "d": 1.0,  # 透明度
+                "illum": 2,  # 光照模型
                 "map_Kd": texture_maps["diffuse"],
             }
             _write_mtl_properties(f, properties)
 
             # Additional PBR maps
-            map_configs = [("metallic", "map_Pm"), ("roughness", "map_Pr"), ("normal", "map_Bump -bm 1.0")]
+            map_configs = [("metallic", "map_Pm"), ("roughness", "map_Pr"), ("ao", "map_Ka"), ("normal", "map_Bump -bm 1.0")]
 
             for texture_key, mtl_key in map_configs:
                 if texture_key in texture_maps:
@@ -190,10 +194,10 @@ def _create_mtl_file(base_path: str, texture_maps: Dict[str, str], is_pbr: bool)
             _write_mtl_properties(f, properties)
 
 
-def save_mesh(mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=None, roughness=None, normal=None):
+def save_mesh(mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=None, roughness=None, ao=None, normal=None):
     """Save mesh using OBJ format."""
     save_obj_mesh(
-        mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=metallic, roughness=roughness, normal=normal
+        mesh_path, vtx_pos, pos_idx, vtx_uv, uv_idx, texture, metallic=metallic, roughness=roughness, ao=ao, normal=normal
     )
 
 

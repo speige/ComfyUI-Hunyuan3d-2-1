@@ -622,18 +622,19 @@ class MeshRender:
         if texture_data is not None:
             self.set_texture(texture_data)
 
-    def save_mesh(self, mesh_path, downsample=False):
+    def save_mesh(self, mesh_path, downsample=False, preserve_ao=False):
         """
         Save current mesh with textures to file.
         
         Args:
             mesh_path: Output file path
             downsample: Whether to downsample textures by half
+            preserve_ao: Whether to preserve AO in R channel of PBR
         """
 
         vtx_pos, pos_idx, vtx_uv, uv_idx = self.get_mesh(normalize=False)
         texture_data = self.get_texture()
-        texture_metallic, texture_roughness = self.get_texture_mr()
+        texture_metallic, texture_roughness, texture_ao = self.get_texture_mr(preserve_ao=preserve_ao)
         texture_normal = self.get_texture_normal()
         if downsample:
             texture_data = cv2.resize(texture_data, (texture_data.shape[1] // 2, texture_data.shape[0] // 2))
@@ -644,6 +645,10 @@ class MeshRender:
             if texture_roughness is not None:
                 texture_roughness = cv2.resize(
                     texture_roughness, (texture_roughness.shape[1] // 2, texture_roughness.shape[0] // 2)
+                )
+            if texture_ao is not None:
+                texture_ao = cv2.resize(
+                    texture_ao, (texture_ao.shape[1] // 2, texture_ao.shape[0] // 2)
                 )
             if texture_normal is not None:
                 texture_normal = cv2.resize(
@@ -659,6 +664,7 @@ class MeshRender:
             texture_data,
             metallic=texture_metallic,
             roughness=texture_roughness,
+            ao=texture_ao,
             normal=texture_normal,
         )
 
@@ -850,19 +856,28 @@ class MeshRender:
         """
         return self.tex.cpu().numpy()
 
-    def get_texture_mr(self):
+    def get_texture_mr(self, preserve_ao=False):
         """
-        Get metallic and roughness textures as separate channels.
+        Get metallic and roughness textures (and AO if preserve_ao is True) as separate channels.
         
         Returns:
-            Tuple of (metallic_texture, roughness_texture) as numpy arrays, or (None, None) if not set
+            Tuple of (metallic_texture, roughness_texture, ao_texture) as numpy arrays, or (None, None, None) if not set
         """
-        metallic, roughness = None, None
+        metallic, roughness, ao = None, None, None
         if hasattr(self, "tex_mr"):
             mr = self.tex_mr.cpu().numpy()
-            metallic = np.repeat(mr[:, :, 0:1], repeats=3, axis=2)
-            roughness = np.repeat(mr[:, :, 1:2], repeats=3, axis=2)
-        return metallic, roughness
+            if preserve_ao:
+                # When preserving AO: Channel R (0) is AO, Channel G (1) is Roughness, Channel B (2) is Metallic
+                ao = np.repeat(mr[:, :, 0:1], repeats=3, axis=2)
+                roughness = np.repeat(mr[:, :, 1:2], repeats=3, axis=2)
+                if mr.shape[2] >= 3:
+                    metallic = np.repeat(mr[:, :, 2:3], repeats=3, axis=2)
+                else:
+                    metallic = np.repeat(mr[:, :, 0:1], repeats=3, axis=2)
+            else:
+                metallic = np.repeat(mr[:, :, 0:1], repeats=3, axis=2)
+                roughness = np.repeat(mr[:, :, 1:2], repeats=3, axis=2)
+        return metallic, roughness, ao
 
     def get_texture_normal(self):
         """

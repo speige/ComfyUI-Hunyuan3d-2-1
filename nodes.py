@@ -761,6 +761,8 @@ class Hy3DInPaint:
                 "output_mesh_name": ("STRING",),
             },
             "optional": {
+                "preserve_ao_channel": ("BOOLEAN", {"default": False, "tooltip": "Preserve AO in R channel of PBR instead of overwriting with 255."}),
+                "preserve_ao_material": ("BOOLEAN", {"default": False, "tooltip": "Enable occlusionTexture in the exported GLB PBR material."}),
                 "force_offload": ("BOOLEAN", {"default": False, "tooltip": "Offloads the model to the offload device once the process is done."}),
             }
         }
@@ -771,7 +773,7 @@ class Hy3DInPaint:
     CATEGORY = "Hunyuan3D21Wrapper"
     OUTPUT_NODE = True
 
-    def process(self, pipeline, albedo, albedo_mask, mr, mr_mask, output_mesh_name, force_offload=False):
+    def process(self, pipeline, albedo, albedo_mask, mr, mr_mask, output_mesh_name, preserve_ao_channel=False, preserve_ao_material=False, force_offload=False):
 
         #albedo = tensor2pil(albedo)
         #albedo_mask = tensor2pil(albedo_mask)
@@ -792,7 +794,7 @@ class Hy3DInPaint:
         temp_folder_path = os.path.join(comfy_path, "temp")
         os.makedirs(temp_folder_path, exist_ok=True)        
         output_mesh_path = os.path.join(temp_folder_path, f"{output_mesh_name}.obj")
-        output_temp_path = pipeline.save_mesh(output_mesh_path)
+        output_temp_path = pipeline.save_mesh(output_mesh_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
         
         output_glb_path = os.path.join(comfy_path, "output", f"{output_mesh_name}.glb")
         shutil.copyfile(output_temp_path, output_glb_path)
@@ -1657,6 +1659,8 @@ class Hy3D21GenerateMultiViewsBatch:
                 "upscale_model_name": (folder_paths.get_filename_list("upscale_models"), ),
                 "export_multiviews": ("BOOLEAN",{"default":True, "tooltip":"Multiviews can be used to apply texture to a low poly mesh"}),
                 "export_metadata": ("BOOLEAN",{"default":True,"tooltip":"Exporta json file with camera config and multiviews"}),
+                "preserve_ao_channel": ("BOOLEAN", {"default": False, "tooltip": "Preserve AO in R channel of PBR instead of overwriting with 255."}),
+                "preserve_ao_material": ("BOOLEAN", {"default": False, "tooltip": "Enable occlusionTexture in the exported GLB PBR material."}),
             },
             "optional": {
                 "input_images_folder": ("STRING",),
@@ -1671,7 +1675,7 @@ class Hy3D21GenerateMultiViewsBatch:
     DESCRIPTION = "Process all meshes from a folder"
     OUTPUT_NODE = True
 
-    def process(self, pipeline, output_folder, steps, guidance_scale, unwrap_mesh, seed, generate_random_seed, remove_background, skip_generated_mesh, upscale_multiviews, upscale_model_name, export_multiviews, export_metadata, input_images_folder = None, input_meshes_folder = None):
+    def process(self, pipeline, output_folder, steps, guidance_scale, unwrap_mesh, seed, generate_random_seed, remove_background, skip_generated_mesh, upscale_multiviews, upscale_model_name, export_multiviews, export_metadata, preserve_ao_channel=False, preserve_ao_material=False, input_images_folder = None, input_meshes_folder = None):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
         rembg = BackgroundRemover()
@@ -1828,7 +1832,7 @@ class Hy3D21GenerateMultiViewsBatch:
                             pipeline.set_texture_mr(mr)
 
                             output_mesh_path = os.path.join(comfy_path, "temp", f"{output_file_name}.obj")
-                            output_temp_path = pipeline.save_mesh(output_mesh_path)
+                            output_temp_path = pipeline.save_mesh(output_mesh_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
                             shutil.copyfile(output_temp_path, output_glb_path)
                             metaData.mesh_file = f'{output_file_name}.glb'
 
@@ -2019,6 +2023,10 @@ class Hy3DBakeMultiViewsWithMetaData:
                 "mr": ("IMAGE", ),
                 "metadata": ("HY3D21METADATA",),
             },
+            "optional": {
+                "preserve_ao_channel": ("BOOLEAN", {"default": False, "tooltip": "Preserve AO in R channel of PBR instead of overwriting with 255."}),
+                "preserve_ao_material": ("BOOLEAN", {"default": False, "tooltip": "Enable occlusionTexture in the exported GLB PBR material."}),
+            }
         }
 
     RETURN_TYPES = ("IMAGE","IMAGE","TRIMESH", "STRING", )
@@ -2026,7 +2034,7 @@ class Hy3DBakeMultiViewsWithMetaData:
     FUNCTION = "process"
     CATEGORY = "Hunyuan3D21Wrapper"
 
-    def process(self, pipeline, albedo, mr, metadata):
+    def process(self, pipeline, albedo, mr, metadata, preserve_ao_channel=False, preserve_ao_material=False):
         vertex_inpaint = True
         method = "NS"       
 
@@ -2067,7 +2075,7 @@ class Hy3DBakeMultiViewsWithMetaData:
                         
         output_glb_path = os.path.join(output_dir_path,f'{output_mesh_name}.obj')
         
-        pipeline.save_mesh(output_glb_path)
+        pipeline.save_mesh(output_glb_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
 
         output_glb_path = os.path.join(output_dir_path,f'{output_mesh_name}.glb')
         
@@ -2102,6 +2110,10 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
                 "metadata_file": ("STRING",),
                 "target_face_nums": ("STRING",{"default":"20000,10000,5000"}),
             },
+            "optional": {
+                "preserve_ao_channel": ("BOOLEAN", {"default": False, "tooltip": "Preserve AO in R channel of PBR instead of overwriting with 255."}),
+                "preserve_ao_material": ("BOOLEAN", {"default": False, "tooltip": "Enable occlusionTexture in the exported GLB PBR material."}),
+            }
         }
 
     RETURN_TYPES = ("STRING", )
@@ -2110,7 +2122,7 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
     CATEGORY = "Hunyuan3D21Wrapper"
     OUTPUT_NODE = True
 
-    def process(self, pipeline, metadata_file, target_face_nums):
+    def process(self, pipeline, metadata_file, target_face_nums, preserve_ao_channel=False, preserve_ao_material=False):
         try:
             import meshlib.mrmeshpy as mrmeshpy
         except ImportError:
@@ -2197,7 +2209,7 @@ class Hy3DHighPolyToLowPolyBakeMultiViewsWithMetaData:
 
                     output_glb_path = os.path.join(output_dir_path,f'{mesh_name}_{target_face_num}.obj')
 
-                    pipeline.save_mesh(output_glb_path)
+                    pipeline.save_mesh(output_glb_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
 
                     pipeline.clean_memory()            
                     del pipeline

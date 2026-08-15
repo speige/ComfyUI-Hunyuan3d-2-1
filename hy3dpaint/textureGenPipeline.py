@@ -37,14 +37,17 @@ from diffusers.utils import logging as diffusers_logging
 
 diffusers_logging.set_verbosity(50)
 
-def quick_convert_with_obj2gltf(obj_path: str, glb_path: str) -> bool:
+def quick_convert_with_obj2gltf(obj_path: str, glb_path: str, preserve_ao_channel: bool = False, preserve_ao_material: bool = False) -> bool:
     # 执行转换
+    ao_file = obj_path.replace('.obj', '_ao.jpg')
     textures = {
         'albedo': obj_path.replace('.obj', '.jpg'),
         'metallic': obj_path.replace('.obj', '_metallic.jpg'),
         'roughness': obj_path.replace('.obj', '_roughness.jpg')
-        }
-    create_glb_with_pbr_materials(obj_path, textures, glb_path)
+    }
+    if (preserve_ao_channel or preserve_ao_material) and os.path.exists(ao_file):
+        textures['ao'] = ao_file
+    create_glb_with_pbr_materials(obj_path, textures, glb_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
 
 class Hunyuan3DPaintConfig:
     def __init__(self, resolution, camera_azims, camera_elevs, view_weights, ortho_scale, texture_size, paintpbr_path="Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1", dino_model_path="facebook/dinov2-giant"):
@@ -270,10 +273,10 @@ class Hunyuan3DPaintPipeline:
     def set_texture_mr(self, texture_mr):
         self.render.set_texture_mr(texture_mr)
         
-    def save_mesh(self, output_mesh_path):
-        self.render.save_mesh(output_mesh_path, downsample=False)
+    def save_mesh(self, output_mesh_path, preserve_ao_channel: bool = False, preserve_ao_material: bool = False):
+        self.render.save_mesh(output_mesh_path, downsample=False, preserve_ao=(preserve_ao_channel or preserve_ao_material))
         output_glb_path = output_mesh_path.replace(".obj", ".glb")
-        conversion_success = quick_convert_with_obj2gltf(output_mesh_path, output_glb_path)
+        conversion_success = quick_convert_with_obj2gltf(output_mesh_path, output_glb_path, preserve_ao_channel=preserve_ao_channel, preserve_ao_material=preserve_ao_material)
         
         return output_glb_path
         
